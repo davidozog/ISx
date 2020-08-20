@@ -60,6 +60,7 @@ uint64_t NUM_KEYS_PER_PE; // Number of keys generated on each PE
 uint64_t NUM_BUCKETS; // The number of buckets in the bucket sort
 uint64_t BUCKET_WIDTH; // The size of each bucket
 uint64_t MAX_KEY_VAL; // The maximum possible generated key value
+uint64_t num_iterations;
 
 volatile int whose_turn;
 
@@ -103,11 +104,11 @@ int main(const int argc,  char ** argv)
 // to set all necessary runtime values and options
 static char * parse_params(const int argc, char ** argv)
 {
-  if(argc != 3)
+  if(argc != 4)
   {
     if( shmem_my_pe() == 0){
       printf("Usage:  \n");
-      printf("  ./%s <total num keys(strong) | keys per pe(weak)> <log_file>\n",argv[0]);
+      printf("  ./%s <total num keys(strong) | keys per pe(weak)> <log_file> <iterations>\n",argv[0]);
     }
 
     shmem_finalize();
@@ -120,6 +121,8 @@ static char * parse_params(const int argc, char ** argv)
   BUCKET_WIDTH = (uint64_t) ceil((double)MAX_KEY_VAL/NUM_BUCKETS);
   char * log_file = argv[2];
   char scaling_msg[64];
+  num_iterations = (uint64_t) strtoull(argv[3], NULL, 10);;
+  assert(num_iterations > 0);
 
   switch(SCALING_OPTION){
     case STRONG:
@@ -173,7 +176,7 @@ static char * parse_params(const int argc, char ** argv)
     printf("  Number of Keys per PE: %" PRIu64 "\n", NUM_KEYS_PER_PE);
     printf("  Max Key Value: %" PRIu64 "\n", MAX_KEY_VAL);
     printf("  Bucket Width: %" PRIu64 "\n", BUCKET_WIDTH);
-    printf("  Number of Iterations: %u\n", NUM_ITERATIONS);
+    printf("  Number of Iterations: %u\n", num_iterations);
     printf("  Number of PEs: %" PRIu64 "\n", NUM_PES);
     printf("  %s Scaling!\n",scaling_msg);
     }
@@ -213,18 +216,18 @@ static int bucket_sort(void)
 {
   int err = 0;
 
-  init_timers(NUM_ITERATIONS);
+  init_timers(num_iterations);
 
 #ifdef PERMUTE
   create_permutation_array();
 #endif
 
 
-  for(uint64_t i = 0; i < (NUM_ITERATIONS + BURN_IN); ++i)
+  for(uint64_t i = 0; i < (num_iterations + BURN_IN); ++i)
   {
 
     // Reset timers after burn in 
-    if(i == BURN_IN){ init_timers(NUM_ITERATIONS); } 
+    if(i == BURN_IN){ init_timers(num_iterations); } 
 
     shmem_barrier_all();
 
@@ -256,7 +259,7 @@ static int bucket_sort(void)
     timer_stop(&timers[TIMER_TOTAL]);
 
     // Only the last iteration is verified
-    if(i == NUM_ITERATIONS) { 
+    if(i == num_iterations) { 
       if (RMO_AMO > 0)
         break;
       err = verify_results(my_local_key_counts, my_bucket_keys);
@@ -735,7 +738,7 @@ static void print_run_info(FILE * fp)
   fprintf(fp,"SHMEM\t");
   fprintf(fp,"NUM_PES %" PRIu64 "\t", NUM_PES);
   fprintf(fp,"Max_Key %" PRIu64 "\t", MAX_KEY_VAL); 
-  fprintf(fp,"Num_Iters %u\t", NUM_ITERATIONS);
+  fprintf(fp,"Num_Iters %u\t", num_iterations);
 
   switch(SCALING_OPTION){
     case STRONG: {
@@ -776,7 +779,7 @@ static void print_run_info(FILE * fp)
  */
 static void print_timer_values(FILE * fp)
 {
-  unsigned int num_records = NUM_PES * NUM_ITERATIONS; 
+  unsigned int num_records = NUM_PES * num_iterations; 
 
   for(uint64_t i = 0; i < num_records; ++i) {
     for(int t = 0; t < TIMER_NTIMERS; ++t){
