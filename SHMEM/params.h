@@ -78,8 +78,8 @@ typedef int KEY_TYPE;
 
 // The number of iterations that an integer sort is performed
 // (Burn in iterations are done first and are not timed)
-#define NUM_ITERATIONS (1u)
-#define BURN_IN (1u)
+#define NUM_ITERATIONS (100u)
+#define BURN_IN (10u)
 
 #define BARRIER_ATA
 

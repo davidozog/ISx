@@ -36,6 +36,20 @@ POSSIBILITY OF SUCH DAMAGE.
 #include <time.h>
 #include <stdbool.h>
 
+
+//#ifdef CLOCK_MONOTONIC
+//    struct timespec tv;
+//    clock_gettime(CLOCK_MONOTONIC, &tv);
+//    wtime = tv.tv_sec * 1e6;
+//    wtime += (double)tv.tv_nsec / 1000.0;
+//#else
+//    struct timeval tv;
+//    gettimeofday(&tv, NULL);
+//    wtime = tv.tv_sec * 1e6;
+//    wtime += (double)tv.tv_usec;
+//#endif
+
+
 typedef struct
 {
   double * seconds;
@@ -45,8 +59,13 @@ typedef struct
   unsigned int num_iters;
   unsigned int seconds_iter;
   unsigned int count_iter;
+#ifdef CLOCK_MONOTONIC
   struct timespec start;
   struct timespec stop;
+#else
+  struct timeval start;
+  struct timeval stop;
+#endif
 } _timer_t;
 
 typedef enum
@@ -58,6 +77,7 @@ typedef enum
   TIMER_BUCKETIZE,
   TIMER_BOFFSET,
   TIMER_SORT,
+  TIMER_AMO,
   //
   // Place new timers above and update timer_names[]
   TIMER_NTIMERS

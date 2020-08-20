@@ -49,7 +49,8 @@ char const * const timer_names[] = {
   [TIMER_BCOUNT]                        = "COUNT_BUCKET_SIZES",
   [TIMER_BUCKETIZE]                     = "BUCKETIZE",
   [TIMER_BOFFSET]                       = "COMPUTE_OFFSETS",
-  [TIMER_SORT]                          = "LOCAL_SORT"
+  [TIMER_SORT]                          = "LOCAL_SORT",
+  [TIMER_AMO]                           = "AMO"
 };
 
 _timer_t timers[TIMER_NTIMERS];
@@ -69,6 +70,10 @@ void timer_reset(_timer_t * const timer, const unsigned int num_iters)
   timer->start.tv_nsec = 0;
   timer->stop.tv_sec = 0;
   timer->stop.tv_nsec = 0;
+#ifndef CLOCK_MONOTONIC
+  timer->start.tv_usec = 0;
+  timer->stop.tv_usec = 0;
+#endif
 }
 
 void init_timers(const unsigned int num_iters)
@@ -121,7 +126,11 @@ void timer_start(_timer_t * const timer)
   timer->start.tv_sec = mts.tv_sec;
   timer->start.tv_nsec = mts.tv_nsec;
 #else
+# ifdef CLOCK_MONOTONIC
   clock_gettime(CLOCK_MONOTONIC, &(timer->start));
+# else
+  gettimeofday(&(timer->start), NULL);
+# endif
 #endif
 }
 
@@ -136,12 +145,24 @@ void timer_stop(_timer_t * const timer)
   mach_port_deallocate(mach_task_self(), cclock);
   timer->stop.tv_sec = mts.tv_sec;
   timer->stop.tv_nsec = mts.tv_nsec;
+printf("timer stoped on Mac?\n");
 #else
+# ifdef CLOCK_MONOTONIC
   clock_gettime(CLOCK_MONOTONIC, &(timer->stop));
+# else
+  gettimeofday(&(timer->stop), NULL);
+# endif
 #endif
+
+#ifdef CLOCK_MONOTONIC
   timer->seconds[timer->seconds_iter] = (double) (timer->stop.tv_sec - timer->start.tv_sec);
   timer->seconds[timer->seconds_iter] += (double) (timer->stop.tv_nsec - timer->start.tv_nsec)*1e-9;
   timer->seconds_iter++;
+#else
+  timer->seconds[timer->seconds_iter] = (double) (timer->stop.tv_sec - timer->start.tv_sec);
+  timer->seconds[timer->seconds_iter] += (double) (timer->stop.tv_usec - timer->start.tv_usec);
+  timer->seconds_iter++;
+#endif
 }
 
 void timer_count(_timer_t * const timer, const unsigned int val)
