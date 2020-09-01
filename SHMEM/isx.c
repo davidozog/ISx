@@ -46,6 +46,8 @@ POSSIBILITY OF SUCH DAMAGE.
 
 #define ROOT_PE 0
 
+#define RMO_AMO 2
+
 // Needed for shmem collective operations
 int pWrk[_SHMEM_REDUCE_MIN_WRKDATA_SIZE];
 double dWrk[_SHMEM_REDUCE_SYNC_SIZE];
@@ -180,6 +182,27 @@ static char * parse_params(const int argc, char ** argv)
 }
 
 
+// On "~independent", keep a local guess where to put().
+// e.g., PE=123 tries to write slice=123, which should
+// mostly not overlap bytes with slice=122 or slice=124.
+static unsigned long long int g_whence;
+
+static void
+rmo_study_exchange_init()
+{
+  // For each exchange, start the "RMO guess" at the start of the
+  // buffer.
+  assert(receive_offset == 0);
+
+  // The average put() is |NUM_KEYS_PER_PE / NUM_PES| bytes.
+  // However, there could be some variation in sizes causing
+  //
+  long long int step = NUM_KEYS_PER_PE / NUM_PES;
+	//printf("Bytes per put ~= %lld\n", step * sizeof(int));
+  g_whence = shmem_my_pe() * step;
+}
+
+
 /*
  * The primary compute function for the bucket sort
  * Executes the sum of NUM_ITERATIONS + BURN_IN iterations, as defined in params.h
@@ -196,6 +219,7 @@ static int bucket_sort(void)
   create_permutation_array();
 #endif
 
+
   for(uint64_t i = 0; i < (NUM_ITERATIONS + BURN_IN); ++i)
   {
 
@@ -203,6 +227,8 @@ static int bucket_sort(void)
     if(i == BURN_IN){ init_timers(NUM_ITERATIONS); } 
 
     shmem_barrier_all();
+
+    rmo_study_exchange_init();
 
     timer_start(&timers[TIMER_TOTAL]);
 
@@ -215,6 +241,7 @@ static int bucket_sort(void)
                                                                    &send_offsets);
 
     KEY_TYPE * my_local_bucketed_keys =  bucketize_local_keys(my_keys, local_bucket_offsets);
+
 
     KEY_TYPE * my_bucket_keys = exchange_keys(send_offsets, 
                                               local_bucket_sizes,
@@ -230,6 +257,8 @@ static int bucket_sort(void)
 
     // Only the last iteration is verified
     if(i == NUM_ITERATIONS) { 
+      if (RMO_AMO > 0)
+        break;
       err = verify_results(my_local_key_counts, my_bucket_keys);
     }
 
@@ -372,6 +401,33 @@ static inline int * compute_local_bucket_offsets(int const * restrict const loca
   return local_bucket_offsets;
 }
 
+
+// Study three cases to estimate RMO performance effect:
+//
+// * Baseline, same as original ISx, do one AMO per put().
+// * Variant #1: always put() to the start of the target array
+// * Variant #2: try to put() to ~independent areas in the target array
+//
+
+static inline long long int
+rmo_amo_fadd(long long int *tgt_var,
+             long long int n,
+             int penum)
+{
+  long long int whence;
+#if RMO_AMO == 0
+  whence = shmem_longlong_fadd(tgt_var, n, penum);
+#elif RMO_AMO == 1
+  whence = 0;
+#elif RMO_AMO == 2
+  whence = g_whence;
+#else
+  #error "Unsupported RMO_AMO configuration"
+#endif
+  return whence;
+}
+
+
 /*
  * Places local keys into their corresponding local bucket.
  * The contents of each bucket are not sorted.
@@ -420,13 +476,16 @@ static inline KEY_TYPE * exchange_keys(int const * restrict const send_offsets,
                                        int const * restrict const local_bucket_sizes,
                                        KEY_TYPE const * restrict const my_local_bucketed_keys)
 {
+
   timer_start(&timers[TIMER_ATA_KEYS]);
 
   const int my_rank = shmem_my_pe();
   unsigned int total_keys_sent = 0;
 
   // Keys destined for local key buffer can be written with memcpy
-  const long long int write_offset_into_self = shmem_longlong_fadd(&receive_offset, (long long int)local_bucket_sizes[my_rank], my_rank);
+  //const long long int write_offset_into_self = shmem_longlong_fadd(&receive_offset, (long long int)local_bucket_sizes[my_rank], my_rank);
+  const long long int write_offset_into_self = rmo_amo_fadd(&receive_offset, (long long int)local_bucket_sizes[my_rank], my_rank);
+
   memcpy(&my_bucket_keys[write_offset_into_self], 
          &my_local_bucketed_keys[send_offsets[my_rank]], 
          local_bucket_sizes[my_rank]*sizeof(KEY_TYPE));
@@ -448,7 +507,8 @@ static inline KEY_TYPE * exchange_keys(int const * restrict const send_offsets,
     const int read_offset_from_self = send_offsets[target_pe];
     const int my_send_size = local_bucket_sizes[target_pe];
 
-    const long long int write_offset_into_target = shmem_longlong_fadd(&receive_offset, (long long int)my_send_size, target_pe);
+    //const long long int write_offset_into_target = shmem_longlong_fadd(&receive_offset, (long long int)my_send_size, target_pe);
+    const long long int write_offset_into_target = rmo_amo_fadd(&receive_offset, (long long int)my_send_size, target_pe);
 
 #ifdef DEBUG
     printf("Rank: %d Target: %d Offset into target: %lld Offset into myself: %d Send Size: %d\n",
