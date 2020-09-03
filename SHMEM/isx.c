@@ -247,20 +247,20 @@ static int bucket_sort(void)
                                               local_bucket_sizes,
                                               my_local_bucketed_keys);
 
-    my_bucket_size = receive_offset;
+    //my_bucket_size = receive_offset;
 
-    int * my_local_key_counts = count_local_keys(my_bucket_keys);
+    //int * my_local_key_counts = count_local_keys(my_bucket_keys);
 
     shmem_barrier_all();
 
     timer_stop(&timers[TIMER_TOTAL]);
 
     // Only the last iteration is verified
-    if(i == NUM_ITERATIONS) { 
-      if (RMO_AMO > 0)
-        break;
-      err = verify_results(my_local_key_counts, my_bucket_keys);
-    }
+    //if(i == NUM_ITERATIONS) { 
+    //  if (RMO_AMO > 0)
+    //    break;
+    //  err = verify_results(my_local_key_counts, my_bucket_keys);
+    //}
 
     // Reset receive_offset used in exchange_keys
     receive_offset = 0;
