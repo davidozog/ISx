@@ -45,8 +45,13 @@ typedef struct
   unsigned int num_iters;
   unsigned int seconds_iter;
   unsigned int count_iter;
+#ifdef CLOCK_MONOTONIC
   struct timespec start;
   struct timespec stop;
+#else
+  struct timeval start;
+  struct timeval stop;
+#endif
 } _timer_t;
 
 typedef enum

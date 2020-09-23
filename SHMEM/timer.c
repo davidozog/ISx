@@ -66,9 +66,14 @@ void timer_reset(_timer_t * const timer, const unsigned int num_iters)
   timer->seconds_iter = 0;
   timer->count_iter = 0;
   timer->start.tv_sec = 0;
-  timer->start.tv_nsec = 0;
   timer->stop.tv_sec = 0;
+#ifdef CLOCK_MONOTONIC
+  timer->start.tv_nsec = 0;
   timer->stop.tv_nsec = 0;
+#else
+  timer->start.tv_usec = 0;
+  timer->stop.tv_usec = 0;
+#endif
 }
 
 void init_timers(const unsigned int num_iters)
@@ -121,7 +126,11 @@ void timer_start(_timer_t * const timer)
   timer->start.tv_sec = mts.tv_sec;
   timer->start.tv_nsec = mts.tv_nsec;
 #else
+#ifdef CLOCK_MONOTONIC
   clock_gettime(CLOCK_MONOTONIC, &(timer->start));
+#else
+  gettimeofday(&(timer->start), NULL);
+#endif
 #endif
 }
 
@@ -137,10 +146,18 @@ void timer_stop(_timer_t * const timer)
   timer->stop.tv_sec = mts.tv_sec;
   timer->stop.tv_nsec = mts.tv_nsec;
 #else
+#ifdef CLOCK_MONOTONIC
   clock_gettime(CLOCK_MONOTONIC, &(timer->stop));
+#else
+  gettimeofday(&(timer->stop), NULL);
+#endif
 #endif
   timer->seconds[timer->seconds_iter] = (double) (timer->stop.tv_sec - timer->start.tv_sec);
+#ifdef CLOCK_MONOTONIC
   timer->seconds[timer->seconds_iter] += (double) (timer->stop.tv_nsec - timer->start.tv_nsec)*1e-9;
+#else
+  timer->seconds[timer->seconds_iter] += (double) (timer->stop.tv_usec - timer->start.tv_usec)*1e-6;
+#endif
   timer->seconds_iter++;
 }
 
