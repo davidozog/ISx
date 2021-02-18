@@ -280,7 +280,7 @@ static int bucket_sort(void)
     free(local_bucket_sizes);
     free(local_bucket_offsets);
     free(send_offsets);
-    free(my_local_key_counts);
+    //free(my_local_key_counts);
 
     shmem_barrier_all();
   }
@@ -667,7 +667,7 @@ static void log_times(char * log_file)
   FILE * fp = NULL;
 
   for(uint64_t i = 0; i < TIMER_NTIMERS; ++i){
-    timers[i].all_times = gather_rank_times(&timers[i]);
+    timers[i].all_times = gather_rank_times(&timers[i], i);
     timers[i].all_counts = gather_rank_counts(&timers[i]);
   }
 
@@ -683,13 +683,13 @@ static void log_times(char * log_file)
       exit(1);
     }
 
-    if(print_names == 1){
-      print_run_info(fp);
-      print_timer_names(fp);
-    }
-    print_timer_values(fp);
+    //if(print_names == 1){
+    //  print_run_info(fp);
+    //  print_timer_names(fp);
+    //}
+    //print_timer_values(fp);
 
-    report_summary_stats();
+    //report_summary_stats();
 
     fclose(fp);
   }
@@ -804,38 +804,72 @@ static void print_timer_values(FILE * fp)
 /* 
  * Aggregates the per PE timing information
  */ 
-static double * gather_rank_times(_timer_t * const timer)
+static double * gather_rank_times(_timer_t * const timer, uint64_t timer_idx)
 {
   if(timer->seconds_iter > 0) {
 
     assert(timer->seconds_iter == timer->num_iters);
 
-    const unsigned int num_records = NUM_PES * timer->seconds_iter;
-#ifdef OPENSHMEM_COMPLIANT
-    double * my_times = shmem_malloc(timer->seconds_iter * sizeof(double));
-#else
-    double * my_times = shmalloc(timer->seconds_iter * sizeof(double));
-#endif
-    memcpy(my_times, timer->seconds, timer->seconds_iter * sizeof(double));
+    /* assert that all PEs have the same num_iters? */
 
-#ifdef OPENSHMEM_COMPLIANT
-    double * all_times = shmem_malloc( num_records * sizeof(double));
-#else
-    double * all_times = shmalloc( num_records * sizeof(double));
-#endif
+    /* Calculate average time on my PE */
+    double total_time = 0;
+    for (int i = 0; i < timer->seconds_iter; i++) {
+        total_time += timer->seconds[i];
+    }
+    double *average_time = shmem_malloc(sizeof(double));
+    *average_time = total_time / timer->seconds_iter;
+    //printf("PE %d has total time %f average time %f\n", shmem_my_pe(), total_time, average_time);
+
+    /* Collect all average times */
+    double *all_averages = shmem_malloc(NUM_PES * sizeof(double));
 
     shmem_barrier_all();
-
-    shmem_fcollect64(all_times, my_times, timer->seconds_iter, 0, 0, NUM_PES, pSync);
+    shmem_fcollect64(all_averages, average_time, 1, 0, 0, NUM_PES, pSync);
     shmem_barrier_all();
 
+    if (shmem_my_pe() == ROOT_PE) {
+      *average_time = 0;
+      for (int i = 0; i < NUM_PES ; i++) {
+        //printf("PE %d has all average times %f\n", shmem_my_pe(), all_averages[i]);
+        *average_time += all_averages[i];
+      }
+      *average_time /= NUM_PES;
+      if (timer_idx == TIMER_TOTAL)
+        printf("average total time is %f\n", shmem_my_pe(), *average_time);
+      else if (timer_idx == TIMER_ATA_KEYS)
+        printf("average a2a time is %f\n", shmem_my_pe(), *average_time);
+    }
+
+
+//    const unsigned int num_records = NUM_PES * timer->seconds_iter;
+//#ifdef OPENSHMEM_COMPLIANT
+//    double * my_times = shmem_malloc(timer->seconds_iter * sizeof(double));
+//#else
+//    double * my_times = shmalloc(timer->seconds_iter * sizeof(double));
+//#endif
+//    memcpy(my_times, timer->seconds, timer->seconds_iter * sizeof(double));
+//
+//#ifdef OPENSHMEM_COMPLIANT
+//    double * all_times = shmem_malloc( num_records * sizeof(double));
+//#else
+//    double * all_times = shmalloc( num_records * sizeof(double));
+//#endif
+//
+//    shmem_barrier_all();
+//
+//    shmem_fcollect64(all_times, my_times, timer->seconds_iter, 0, 0, NUM_PES, pSync);
+//    shmem_barrier_all();
+
 #ifdef OPENSHMEM_COMPLIANT
-    shmem_free(my_times);
+//    shmem_free(my_times);
+    shmem_free(average_time);
+    shmem_free(all_averages);
 #else
     shfree(my_times);
 #endif
 
-    return all_times;
+    return NULL;
   }
   else{
     return NULL;

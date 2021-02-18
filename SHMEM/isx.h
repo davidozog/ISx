@@ -141,7 +141,7 @@ static void report_summary_stats(void);
 static void print_timer_names(FILE * fp);
 static void print_run_info(FILE * fp);
 static void print_timer_values(FILE * fp);
-static double * gather_rank_times(_timer_t * const timer);
+static double * gather_rank_times(_timer_t * const timer, uint64_t timer_idx);
 static unsigned int * gather_rank_counts(_timer_t * const timer);
 
 #endif
