@@ -146,7 +146,7 @@ static void print_run_info(FILE * fp);
 static void print_timer_values(FILE * fp);
 static double * gather_rank_times(_timer_t * const timer);
 // Kieran Edit
-static double * kgather_rank_times(char * log_file, _timer_t * const timer);
+static double * kgather_rank_times(_timer_t * const timer);
 // End Kieran Edit
 static unsigned int * gather_rank_counts(_timer_t * const timer);
 

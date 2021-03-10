@@ -637,6 +637,24 @@ static void log_times(char * log_file)
 
 }
 
+static void dprint_timer_values(FILE * fp)
+{
+  unsigned int num_records = NUM_ITERATIONS;
+
+  for(uint64_t i = 0; i < num_records; ++i) {
+    for(int t = 0; t < TIMER_NTIMERS; ++t){
+      if(timers[t].seconds_iter > 0) {
+        fprintf(fp,"%f\t", timers[t].seconds[i]);
+      }
+      if(timers[t].count_iter > 0) {
+        fprintf(fp,"%u\t", timers[t].count[i]);
+      }
+    }
+    fprintf(fp,"\n");
+  }
+  return;
+}
+
 // Kieran Edit
 static void klog_times(char * log_file)
 {
@@ -663,10 +681,23 @@ static void klog_times(char * log_file)
 
   printf("Made it past initial log file setup\n");
 
+  for (int i = 0; i < NUM_PES; ++i) {
+    if (i == shmem_my_pe()) {
+      FILE * fp = NULL;
+      if ((fp = fopen(log_file, "a+b")) == NULL) {
+        perror("Error opening log file:");
+        exit(1);
+      }
+      dprint_timer_values(fp);
+      fclose(fp);
+    }
+    shmem_barrier_all();
+  }
+
   for (uint64_t k = 0; k < NUM_PES; ++k) {
     if (shmem_my_pe() == k) {
       for(uint64_t i = 0; i < TIMER_NTIMERS; ++i){
-        timers[i].all_averages = kgather_rank_times(log_file, &timers[i]);
+        timers[i].all_averages = kgather_rank_times(&timers[i]);
         timers[i].all_counts = gather_rank_counts(&timers[i]);
       }
     }
@@ -880,7 +911,7 @@ static double * gather_rank_times(_timer_t * const timer)
 }
 
 // Kieran Edit
-static double * kgather_rank_times(char * log_file, _timer_t * const timer)
+static double * kgather_rank_times(_timer_t * const timer)
 {
   if(timer->seconds_iter > 0) {
 
@@ -888,34 +919,12 @@ static double * kgather_rank_times(char * log_file, _timer_t * const timer)
 
     const unsigned int num_records = NUM_PES * timer->seconds_iter;
     const unsigned int num_averages = NUM_PES;
-#ifdef OPENSHMEM_COMPLIANT
-    double * my_times = shmem_malloc(timer->seconds_iter * sizeof(double));
-#else
-    double * my_times = shmalloc(timer->seconds_iter * sizeof(double));
-#endif
-    memcpy(my_times, timer->seconds, timer->seconds_iter * sizeof(double));
-
-    shmem_barrier_all();
-    
-    for(int i = 0; i < NUM_PES; ++i) {
-      if ( i == shmem_my_pe()) {
-        FILE * fp = NULL;
-        if((fp = fopen(log_file, "a+b"))==NULL){
-          perror("Error opening log file:");
-          exit(1);
-        }
-
-        kprint_timer_values(fp, my_times);
-        fclose(fp);
-      }
-      shmem_barrier_all();
-    }
 
     double * my_average = shmem_malloc(sizeof(double));
 
     double temp = 0.0;
     for(int i = 0; i < timer->seconds_iter; i++) {
-      temp += my_times[i];
+      temp += timer->seconds[i];
     }
 
     *my_average = temp/(timer->seconds_iter);
@@ -925,24 +934,10 @@ static double * kgather_rank_times(char * log_file, _timer_t * const timer)
       printf("\nkgather finshed\n\n");
     }
 
-#ifdef OPENSHMEM_COMPLIANT
-    double * all_times = shmem_malloc( num_records * sizeof(double));
-#else
-    double * all_times = shmalloc( num_records * sizeof(double));
-#endif
-
     double * all_averages = shmem_malloc( num_averages * sizeof(double));
 
-    shmem_barrier_all();
-    
     shmem_fcollect64(all_averages, my_average, 1, 0, 0, NUM_PES, pSync);
     shmem_barrier_all();
-
-#ifdef OPENSHMEM_COMPLIANT
-    shmem_free(my_times);
-#else
-    shfree(my_times);
-#endif
 
     shmem_free(my_average);
 
